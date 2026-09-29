@@ -1,0 +1,272 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint and format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: tools/requirements-quality.txt
+      - uses: gradle/actions/setup-gradle@v6
+      - run: python -m pip install -r tools/requirements-quality.txt
+      - run: npm ci
+      - name: Check Kotlin and C++
+        run: ./gradlew -PskipAndroid=true spotlessCheck
+      - name: Check JavaScript and document formatting
+        run: npm run check
+      - name: Check Python
+        run: |
+          ruff check tools
+          ruff format --check tools
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: Lint GitHub Actions
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint" -color
+
+  apple:
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            target: MacosArm64
+            test: macosArm64Test
+          - runner: macos-15-intel
+            arch: x64
+            target: MacosX64
+            test: macosX64Test
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Test and link on the host architecture
+        run: ./gradlew -PskipAndroid=true :audio:${{ matrix.test }} :samples:desktop:linkDebugExecutable${{ matrix.target }}
+      - name: Test native callback lifetime
+        run: |
+          cmake -S audio/native -B build/native-tests -DPCM_AUDIO_BUILD_BACKEND=OFF -DBUILD_TESTING=ON
+          cmake --build build/native-tests --parallel 2
+          ctest --test-dir build/native-tests --output-on-failure --output-junit results.xml
+      - name: Check Swift formatting
+        if: matrix.arch == 'arm64'
+        run: xcrun swift-format lint --strict --recursive samples/apple
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-${{ matrix.arch }}-reports
+          path: |
+            audio/build/reports/tests/
+            audio/build/test-results/
+            build/native-tests/results.xml
+            build/native-tests/Testing/Temporary/
+
+  ios:
+    name: iOS simulator and watchOS build
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Select an available iPhone simulator
+        run: |
+          PCMAUDIO_DEVICE=$(xcrun simctl list devices available --json | python3 -c 'import json, sys; devices = json.load(sys.stdin)["devices"]; print(next(device["udid"] for runtime, entries in devices.items() if ".iOS-" in runtime for device in entries if device["name"].startswith("iPhone")))')
+          echo "PCMAUDIO_DEVICE=$PCMAUDIO_DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$PCMAUDIO_DEVICE"
+          xcrun simctl bootstatus "$PCMAUDIO_DEVICE" -b
+      - name: Run shared and Apple tests on iOS
+        run: ./gradlew -PskipAndroid=true :audio:iosSimulatorArm64Test --device "$PCMAUDIO_DEVICE"
+      - name: Build Apple frameworks and watchOS targets
+        run: >-
+          ./gradlew -PskipAndroid=true
+          :audio:linkDebugFrameworkIosArm64
+          :audio:linkDebugFrameworkIosSimulatorArm64
+          :audio:compileKotlinWatchosArm64
+          :audio:compileKotlinWatchosDeviceArm64
+          :audio:compileKotlinWatchosSimulatorArm64
+      - name: Typecheck the SwiftUI sample
+        run: >-
+          xcrun --sdk iphonesimulator swiftc -typecheck samples/apple/ContentView.swift
+          -target arm64-apple-ios15.0-simulator
+          -sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          -F audio/build/bin/iosSimulatorArm64/debugFramework
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-reports
+          path: |
+            audio/build/reports/tests/
+            audio/build/test-results/
+
+  android:
+    name: Android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Install the Android SDK components
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Test, lint, and build
+        run: ./gradlew :audio:testAndroidHostTest :samples:android:lintDebug :samples:android:assembleDebug
+      - name: Upload Android reports and sample
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-reports-and-apk
+          path: |
+            audio/build/reports/
+            audio/build/test-results/
+            samples/android/build/reports/
+            samples/android/build/outputs/apk/debug/
+
+  web:
+    name: Web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Test and build Kotlin JS
+        run: ./gradlew -PskipAndroid=true :audio:jsNodeTest :audio:jsBrowserProductionLibraryDistribution
+      - name: Test the compiled audio worklet
+        run: |
+          node samples/web/stage.mjs
+          node --test samples/web/*.test.mjs
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Test playback controls in Chromium
+        run: npm run test:browser
+      - name: Upload Web reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-reports
+          path: |
+            audio/build/reports/tests/
+            audio/build/test-results/
+            playwright-report/
+            test-results/
+
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Install native build and audio dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libasound2t64
+      - name: Run native backend tests with ALSA null output
+        run: |
+          cmake -S audio/native -B build/native-tests -G Ninja -DCMAKE_BUILD_TYPE=Release -DPCM_AUDIO_BUILD_BACKEND=ON -DBUILD_TESTING=ON
+          cmake --build build/native-tests --parallel 2
+          ctest --test-dir build/native-tests --output-on-failure --output-junit results.xml
+      - name: Test Kotlin Native and link the desktop sample
+        run: ./gradlew -PskipAndroid=true :audio:linuxX64Test :samples:desktop:linkDebugExecutableLinuxX64
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-reports
+          path: |
+            audio/build/reports/tests/
+            audio/build/test-results/
+            build/native-tests/results.xml
+            build/native-tests/Testing/Temporary/
+
+  windows:
+    name: Windows x64
+    runs-on: windows-2025
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Install Ninja
+        run: choco install ninja --no-progress -y
+      - name: Run native backend and callback tests
+        run: |
+          cmake -S audio/native -B build/native-tests -DPCM_AUDIO_BUILD_BACKEND=ON -DBUILD_TESTING=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build/native-tests --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir build/native-tests -C Release --output-on-failure --output-junit results.xml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test Kotlin Native and link the desktop sample
+        run: ./gradlew.bat -PskipAndroid=true :audio:mingwX64Test :samples:desktop:linkDebugExecutableMingwX64
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-reports
+          path: |
+            audio/build/reports/tests/
+            audio/build/test-results/
+            build/native-tests/results.xml
+            build/native-tests/Testing/Temporary/
