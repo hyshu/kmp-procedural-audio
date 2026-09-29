@@ -113,6 +113,15 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v6
+      - name: Build iOS tests, Apple frameworks, and watchOS targets
+        run: >-
+          ./gradlew --no-daemon -PskipAndroid=true
+          :audio:linkDebugTestIosSimulatorArm64
+          :audio:linkDebugFrameworkIosArm64
+          :audio:linkDebugFrameworkIosSimulatorArm64
+          :audio:compileKotlinWatchosArm64
+          :audio:compileKotlinWatchosDeviceArm64
+          :audio:compileKotlinWatchosSimulatorArm64
       - name: Select an available iPhone simulator
         run: |
           PCMAUDIO_DEVICE=$(xcrun simctl list devices available --json | python3 -c 'import json, sys; devices = json.load(sys.stdin)["devices"]; print(next(device["udid"] for runtime, entries in devices.items() if ".iOS-" in runtime for device in entries if device["name"].startswith("iPhone")))')
@@ -120,15 +129,9 @@ jobs:
           xcrun simctl boot "$PCMAUDIO_DEVICE"
           xcrun simctl bootstatus "$PCMAUDIO_DEVICE" -b
       - name: Run shared and Apple tests on iOS
-        run: ./gradlew -PskipAndroid=true :audio:iosSimulatorArm64Test --device "$PCMAUDIO_DEVICE"
-      - name: Build Apple frameworks and watchOS targets
         run: >-
-          ./gradlew -PskipAndroid=true
-          :audio:linkDebugFrameworkIosArm64
-          :audio:linkDebugFrameworkIosSimulatorArm64
-          :audio:compileKotlinWatchosArm64
-          :audio:compileKotlinWatchosDeviceArm64
-          :audio:compileKotlinWatchosSimulatorArm64
+          ./gradlew --no-daemon -Dorg.gradle.jvmargs="-Xmx1g -Dfile.encoding=UTF-8"
+          -PskipAndroid=true :audio:iosSimulatorArm64Test --device "$PCMAUDIO_DEVICE"
       - name: Typecheck the SwiftUI sample
         run: >-
           xcrun --sdk iphonesimulator swiftc -typecheck samples/apple/ContentView.swift
