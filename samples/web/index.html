@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kotlin procedural audio</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, sans-serif;
+    }
+    body {
+      max-width: 42rem;
+      margin: 10vh auto;
+      padding: 1.5rem;
+      line-height: 1.6;
+    }
+    h1 {
+      line-height: 1.2;
+    }
+    button,
+    select {
+      font: inherit;
+      padding: 0.6rem 0.9rem;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    #status {
+      min-height: 3em;
+    }
+    a {
+      color: inherit;
+    }
+  </style>
+  <main>
+    <h1>Kotlin procedural audio</h1>
+    <p>
+      Shared Kotlin generates sound inside an AudioWorklet. The browser window sends commands and
+      never generates PCM.
+    </p>
+    <div class="controls">
+      <button id="play" type="button">Play</button>
+      <button id="pause" type="button">Pause</button>
+      <label for="source">Sound</label>
+      <select id="source">
+        <option value="sine">Sine wave</option>
+        <option value="noise">Noise</option>
+      </select>
+    </div>
+    <p id="status" role="status" aria-live="polite">Ready. Tap Play to enable audio.</p>
+    <p>
+      48 kHz stereo Float PCM. Switching sound uses the shared crossfade. Pause suspends the audio
+      context. Start with a comfortable device volume.
+    </p>
+  </main>
+  <script type="module">
+    import { BrowserAudio } from './browser-audio.mjs';
+    const status = document.querySelector('#status');
+    const audio = new BrowserAudio(({ phase, source, error }) => {
+      status.textContent = error || `${phase.charAt(0).toUpperCase() + phase.slice(1)} · ${source}`;
+    });
+    document.querySelector('#play').addEventListener('click', () => audio.play());
+    document.querySelector('#pause').addEventListener('click', () => audio.pause());
+    document
+      .querySelector('#source')
+      .addEventListener('change', (event) => audio.selectSource(event.target.value));
+    addEventListener('pagehide', () => audio.close());
+  </script>
+</html>

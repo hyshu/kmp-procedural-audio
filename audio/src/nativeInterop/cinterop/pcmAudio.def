@@ -1,0 +1,5 @@
+headers = pcm_audio.h
+headerFilter = pcm_audio.h
+package = bio.aq.audio.nativeinterop
+linkerOpts.mingw = -lavrt -lole32 -luuid
+linkerOpts.linux = -lpthread -ldl -lm

@@ -8,3 +8,7 @@ local.properties
 node_modules/
 samples/web/dist/
 xcuserdata/
+.venv/
+.ruff_cache/
+playwright-report/
+test-results/

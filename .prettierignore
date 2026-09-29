@@ -1,0 +1,9 @@
+**/build/
+**/node_modules/
+**/dist/
+.gradle/
+.kotlin/
+.idea/
+.venv/
+gradle/wrapper/
+kotlin-js-store/
