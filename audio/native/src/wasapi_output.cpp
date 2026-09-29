@@ -14,7 +14,6 @@
 
 #include <audioclient.h>
 #include <avrt.h>
-#include <initguid.h>
 #include <ks.h>
 #include <ksmedia.h>
 #include <mmdeviceapi.h>
@@ -363,8 +362,8 @@ class WasapiOutput::Impl final {
 
     void RunSession() {
         ComPtr<IMMDeviceEnumerator> enumerator;
-        ThrowIfFailed(CoCreateInstance(CLSID_MMDeviceEnumerator, nullptr, CLSCTX_ALL,
-                                       IID_IMMDeviceEnumerator,
+        ThrowIfFailed(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                                       __uuidof(IMMDeviceEnumerator),
                                        reinterpret_cast<void **>(enumerator.Put())),
                       "CoCreateInstance(MMDeviceEnumerator)");
 
@@ -373,7 +372,7 @@ class WasapiOutput::Impl final {
                       "IMMDeviceEnumerator::GetDefaultAudioEndpoint");
 
         ComPtr<IAudioClient> audio_client;
-        ThrowIfFailed(device->Activate(IID_IAudioClient, CLSCTX_ALL, nullptr,
+        ThrowIfFailed(device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
                                        reinterpret_cast<void **>(audio_client.Put())),
                       "IMMDevice::Activate(IAudioClient)");
 
@@ -400,7 +399,7 @@ class WasapiOutput::Impl final {
         }
 
         ComPtr<IAudioRenderClient> render_client;
-        ThrowIfFailed(audio_client->GetService(IID_IAudioRenderClient,
+        ThrowIfFailed(audio_client->GetService(__uuidof(IAudioRenderClient),
                                                reinterpret_cast<void **>(render_client.Put())),
                       "IAudioClient::GetService(IAudioRenderClient)");
 
