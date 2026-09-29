@@ -38,18 +38,34 @@ int render(void *context, float *samples, std::int32_t frames) {
     return 1;
 }
 
-std::string wait_for_output(pcm_audio_output *output, RenderState &state, int previous_calls) {
+std::string take_error(pcm_audio_output *output) {
     std::array<char, 1024> error{};
+    if (pcm_audio_take_error(output, error.data(), error.size()) == 1) {
+        return error.data();
+    }
+    return {};
+}
+
+std::string wait_for_output(pcm_audio_output *output, RenderState &state, int previous_calls) {
+    constexpr int required_callbacks = 3;
     const auto deadline = std::chrono::steady_clock::now() + 5s;
-    while (state.calls.load() == previous_calls && std::chrono::steady_clock::now() < deadline) {
-        if (pcm_audio_take_error(output, error.data(), error.size()) == 1) {
-            return error.data();
+    while (state.calls.load() - previous_calls < required_callbacks &&
+           std::chrono::steady_clock::now() < deadline) {
+        const auto error = take_error(output);
+        if (!error.empty()) {
+            return error;
         }
         std::this_thread::sleep_for(1ms);
     }
-    require(state.calls.load() > previous_calls,
-            "The backend produced neither PCM nor a device error");
-    return {};
+    require(state.calls.load() - previous_calls >= required_callbacks,
+            "The backend did not sustain PCM rendering or report a device error");
+    return take_error(output);
+}
+
+std::string stop_and_collect_error(pcm_audio_output *output, std::string render_error) {
+    require(pcm_audio_stop(output) == 1, "Backend stop failed");
+    const auto final_error = take_error(output);
+    return render_error.empty() ? final_error : render_error;
 }
 
 void require_stopped(RenderState &state) {
@@ -72,14 +88,14 @@ int main() {
         }
         require(pcm_audio_start(output.get()) == 1, "Backend start failed");
         require(pcm_audio_start(output.get()) == 1, "Repeated start failed");
-        const auto initial_error = wait_for_output(output.get(), state, 0);
-        require(pcm_audio_stop(output.get()) == 1, "Backend stop failed");
+        const auto initial_error =
+            stop_and_collect_error(output.get(), wait_for_output(output.get(), state, 0));
         require_stopped(state);
 
         const auto previous_calls = state.calls.load();
         require(pcm_audio_start(output.get()) == 1, "Backend restart failed");
-        const auto restart_error = wait_for_output(output.get(), state, previous_calls);
-        require(pcm_audio_stop(output.get()) == 1, "Backend stop after restart failed");
+        const auto restart_error = stop_and_collect_error(
+            output.get(), wait_for_output(output.get(), state, previous_calls));
         require_stopped(state);
         require(pcm_audio_destroy(output.get()) == 1, "Backend destruction failed");
         output.release();
