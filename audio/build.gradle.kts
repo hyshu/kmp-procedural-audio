@@ -41,8 +41,40 @@ kotlin {
 
     val nativeCompilerVersion = coreLibrariesVersion
     listOf(linuxX64(), mingwX64()).forEach { target ->
-        val nativeBuild = layout.buildDirectory.dir("native/${target.name}")
-        val capitalizedTarget = target.name.replaceFirstChar(Char::uppercaseChar)
+        val targetName = target.name
+        val nativeBuildDirectory = layout.buildDirectory.dir("native/$targetName").get().asFile
+        val nativeSourceDirectory = file("native")
+        val capitalizedTarget = targetName.replaceFirstChar(Char::uppercaseChar)
+        val toolchain = providers.gradleProperty("pcmAudioToolchain$capitalizedTarget").orNull
+        val toolchainFile = file(
+            toolchain ?: if (targetName == "mingwX64") {
+                "native/cmake/konan-mingw.cmake"
+            } else {
+                "native/cmake/konan-linux.cmake"
+            },
+        )
+        val konanData = file(
+            System.getenv("KONAN_DATA_DIR") ?: "${System.getProperty("user.home")}/.konan",
+        )
+        val compilerHomeOverride = (
+            providers.gradleProperty("kotlin.native.home").orNull ?: System.getenv("KONAN_HOME")
+            )?.let(::file)
+        val llvmRootOverride = System.getenv("PCM_AUDIO_LLVM_ROOT")
+        val targetKey = if (targetName == "mingwX64") "mingw_x64" else "linux_x64"
+        val targetVariable = if (targetName == "mingwX64") "PCM_AUDIO_MINGW_ROOT" else "PCM_AUDIO_LINUX_ROOT"
+        val targetRootOverride = System.getenv(targetVariable)
+        val os = System.getProperty("os.name")
+        val host = when {
+            os.startsWith("Mac") -> if (System.getProperty("os.arch") in listOf("aarch64", "arm64")) {
+                "macos_arm64"
+            } else {
+                "macos_x64"
+            }
+
+            os.startsWith("Windows") -> "mingw_x64"
+
+            else -> "linux_x64"
+        }
         val toolchainInterop = target.compilations.getByName("main").cinterops.create("pcmToolchain") {
             definitionFile.set(project.file("src/nativeInterop/cinterop/pcmToolchain.def"))
         }
@@ -50,10 +82,8 @@ kotlin {
             dependsOn(toolchainInterop.interopProcessingTaskName)
             inputs.dir("native")
             inputs.property("nativeCompilerVersion", nativeCompilerVersion)
-            inputs.property(
-                "toolchain",
-                providers.gradleProperty("pcmAudioToolchain$capitalizedTarget").orElse("default"),
-            )
+            inputs.property("toolchain", toolchain ?: "default")
+            inputs.property("compilerHomeOverride", compilerHomeOverride?.absolutePath ?: "default")
             listOf(
                 "KONAN_DATA_DIR",
                 "KONAN_HOME",
@@ -63,15 +93,17 @@ kotlin {
             ).forEach {
                 inputs.property(it, System.getenv(it) ?: "default")
             }
-            outputs.file(nativeBuild.map { it.file("CMakeCache.txt") })
+            outputs.file(nativeBuildDirectory.resolve("CMakeCache.txt"))
+            commandLine(
+                "cmake", "-S", nativeSourceDirectory.absolutePath,
+                "-B", nativeBuildDirectory.absolutePath,
+                "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF",
+                "-DPCM_AUDIO_BUNDLE_RUNTIME=ON",
+                "-DCMAKE_TOOLCHAIN_FILE=${toolchainFile.absolutePath}",
+                "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${nativeBuildDirectory.absolutePath}",
+            )
             doFirst {
-                val konanData = file(
-                    System.getenv("KONAN_DATA_DIR")
-                        ?: "${System.getProperty("user.home")}/.konan",
-                )
-                val homeOverride = providers.gradleProperty("kotlin.native.home").orNull
-                    ?: System.getenv("KONAN_HOME")
-                val compilerHome = homeOverride?.let(::file) ?: konanData.listFiles()
+                val compilerHome = compilerHomeOverride ?: konanData.listFiles()
                     ?.firstOrNull {
                         it.name.endsWith("-$nativeCompilerVersion") &&
                             it.resolve("konan/konan.properties").isFile
@@ -86,54 +118,25 @@ kotlin {
                         resolveProperty(it.groupValues[1])
                     }
                 }
-                val os = System.getProperty("os.name")
-                val host = when {
-                    os.startsWith("Mac") -> if (System.getProperty("os.arch") in listOf("aarch64", "arm64")) {
-                        "macos_arm64"
-                    } else {
-                        "macos_x64"
-                    }
-
-                    os.startsWith("Windows") -> "mingw_x64"
-
-                    else -> "linux_x64"
-                }
                 val dependencies = konanData.resolve("dependencies")
-                val llvmRoot = System.getenv("PCM_AUDIO_LLVM_ROOT")
+                val llvmRoot = llvmRootOverride
                     ?: dependencies.resolve(resolveProperty("llvmHome.$host")).absolutePath
-                val targetKey = if (target.name == "mingwX64") "mingw_x64" else "linux_x64"
-                val targetVariable = if (target.name == "mingwX64") "PCM_AUDIO_MINGW_ROOT" else "PCM_AUDIO_LINUX_ROOT"
-                val targetRoot = System.getenv(targetVariable)
+                val targetRoot = targetRootOverride
                     ?: dependencies.resolve(resolveProperty("toolchainDependency.$targetKey")).absolutePath
-                environment("PCM_AUDIO_LLVM_ROOT", llvmRoot)
-                environment(targetVariable, targetRoot)
-                val toolchain = providers.gradleProperty("pcmAudioToolchain$capitalizedTarget").orNull
-                    ?: if (target.name ==
-                        "mingwX64"
-                    ) {
-                        "native/cmake/konan-mingw.cmake"
-                    } else {
-                        "native/cmake/konan-linux.cmake"
-                    }
-                commandLine(
-                    "cmake", "-S", file("native").absolutePath,
-                    "-B", nativeBuild.get().asFile.absolutePath,
-                    "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF",
-                    "-DPCM_AUDIO_BUNDLE_RUNTIME=ON",
-                    "-DCMAKE_TOOLCHAIN_FILE=${file(toolchain).absolutePath}",
-                    "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${nativeBuild.get().asFile.absolutePath}",
-                )
+                val configureOutput = this as Exec
+                configureOutput.environment("PCM_AUDIO_LLVM_ROOT", llvmRoot)
+                configureOutput.environment(targetVariable, targetRoot)
             }
         }
         val build = tasks.register<Exec>("build${capitalizedTarget}Output") {
             dependsOn(configure)
             inputs.dir("native")
-            inputs.file(nativeBuild.map { it.file("CMakeCache.txt") })
-            outputs.file(nativeBuild.map { it.file("libpcm_audio.a") })
+            inputs.file(nativeBuildDirectory.resolve("CMakeCache.txt"))
+            outputs.file(nativeBuildDirectory.resolve("libpcm_audio.a"))
             commandLine(
                 "cmake",
                 "--build",
-                nativeBuild.get().asFile.absolutePath,
+                nativeBuildDirectory.absolutePath,
                 "--config",
                 "Release",
                 "--target",
@@ -145,14 +148,14 @@ kotlin {
             includeDirs(project.file("native/include"))
             extraOpts(
                 "-libraryPath",
-                nativeBuild.get().asFile.absolutePath,
+                nativeBuildDirectory.absolutePath,
                 "-staticLibrary",
                 "libpcm_audio.a",
             )
         }.also { interop ->
             tasks.named(interop.interopProcessingTaskName).configure {
                 dependsOn(build)
-                inputs.file(nativeBuild.map { it.file("libpcm_audio.a") })
+                inputs.file(nativeBuildDirectory.resolve("libpcm_audio.a"))
             }
         }
     }

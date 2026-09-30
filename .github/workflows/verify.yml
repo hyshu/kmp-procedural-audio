@@ -230,7 +230,13 @@ jobs:
           cmake --build build/native-tests --parallel 2
           ctest --test-dir build/native-tests --output-on-failure --output-junit results.xml
       - name: Test Kotlin Native and link the desktop sample
-        run: ./gradlew -PskipAndroid=true :audio:linuxX64Test :samples:desktop:linkDebugExecutableLinuxX64
+        run: >-
+          ./gradlew --configuration-cache --configuration-cache-problems=fail
+          -PskipAndroid=true :audio:linuxX64Test :samples:desktop:linkDebugExecutableLinuxX64
+      - name: Replay the Linux build with the configuration cache
+        run: >-
+          ./gradlew --configuration-cache --configuration-cache-problems=fail
+          -PskipAndroid=true :audio:linuxX64Test :samples:desktop:linkDebugExecutableLinuxX64
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -264,7 +270,13 @@ jobs:
           ctest --test-dir build/native-tests -C Release --output-on-failure --output-junit results.xml
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test Kotlin Native and link the desktop sample
-        run: ./gradlew.bat -PskipAndroid=true :audio:mingwX64Test :samples:desktop:linkDebugExecutableMingwX64
+        run: >-
+          ./gradlew.bat --configuration-cache --configuration-cache-problems=fail
+          -PskipAndroid=true :audio:mingwX64Test :samples:desktop:linkDebugExecutableMingwX64
+      - name: Replay the Windows build with the configuration cache
+        run: >-
+          ./gradlew.bat --configuration-cache --configuration-cache-problems=fail
+          -PskipAndroid=true :audio:mingwX64Test :samples:desktop:linkDebugExecutableMingwX64
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v7
