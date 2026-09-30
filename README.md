@@ -30,7 +30,7 @@ includeBuild("../kmp-procedural-audio")
 // build.gradle.kts
 kotlin {
     sourceSets.commonMain.dependencies {
-        implementation("bio.aq.audio:audio:0.1.0")
+        implementation("bio.aq.audio:audio:0.1.1")
     }
 }
 ```

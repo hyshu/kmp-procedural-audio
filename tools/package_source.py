@@ -5,7 +5,7 @@ import zipfile
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-version = "0.1.0"
+version = "0.1.1"
 excluded = {
     ".git",
     ".gradle",
