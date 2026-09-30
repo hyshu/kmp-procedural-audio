@@ -97,9 +97,12 @@ internal actual class PlatformAudioOutput actual constructor(render: (FloatArray
         )
         // The Objective-C block retains only render state, never the engine owner.
         val renderState = state
-        val node = AVAudioSourceNode(format) { _, _, frames, buffers ->
-            renderState.render(frames, buffers)
-        }
+        val node = AVAudioSourceNode(
+            format = format,
+            renderBlock = { _, _, frames, buffers ->
+                renderState.render(frames, buffers)
+            },
+        )
         val audioEngine = AVAudioEngine()
         audioEngine.attachNode(node)
         audioEngine.connect(node, to = audioEngine.mainMixerNode, format = format)
