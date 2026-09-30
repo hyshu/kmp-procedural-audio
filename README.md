@@ -43,6 +43,10 @@ Keep rendering short and avoid blocking work or calling player methods from a so
 Give each player its own source instance.
 Use `takeFailure()` to read asynchronous output errors.
 
+Use `CrossfadeSource` when a host needs to render directly into its own PCM buffer.
+It implements `PcmSource` and accepts a custom transition length in frames.
+Call `replaceSource()` to switch sounds smoothly.
+
 ## Targets
 
 | Target                           | Output        |

@@ -4,23 +4,31 @@ package bio.aq.audio
 
 import kotlin.concurrent.atomics.AtomicReference
 
-/** The control thread publishes requests and the audio thread owns each fade. */
-internal class SwitchingSource(
+/**
+ * Switches between sources using a complementary linear crossfade.
+ *
+ * Call [replaceSource] from the control thread. One audio thread owns rendering
+ * and each fade. New requests finish the current fade before starting the next.
+ * [transitionFrames] sets the fade length and [chunkFrames] sets scratch capacity.
+ */
+class CrossfadeSource(
     initialSource: PcmSource,
     private val transitionFrames: Int = 2_400,
     private val chunkFrames: Int = 1_024,
 ) : PcmSource {
+    init {
+        require(transitionFrames > 0) { "The transition must contain at least one frame" }
+        require(chunkFrames in 1..Int.MAX_VALUE / PcmFormat.CHANNELS) {
+            "The scratch buffer must hold two samples for every chunk frame"
+        }
+    }
+
     private val requested = AtomicReference(initialSource)
     private var current = initialSource
     private var next: PcmSource? = null
     private var fadeFrame = 0
     private val previousBuffer = FloatArray(chunkFrames * PcmFormat.CHANNELS)
     private val nextBuffer = FloatArray(chunkFrames * PcmFormat.CHANNELS)
-
-    init {
-        require(transitionFrames > 0) { "The transition must contain at least one frame" }
-        require(chunkFrames > 0) { "The chunk must contain at least one frame" }
-    }
 
     fun replaceSource(source: PcmSource) {
         requested.store(source)
