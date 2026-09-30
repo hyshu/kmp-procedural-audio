@@ -10,7 +10,7 @@ package bio.aq.audio
  * Never call lifecycle methods from inside a source callback.
  */
 class AudioPlayer(source: PcmSource) {
-    private val renderer = SwitchingSource(source)
+    private val renderer = CrossfadeSource(source)
     internal val output = PlatformAudioOutput(renderer::render)
     private var closed = false
 

@@ -12,6 +12,8 @@ Open [the local sample](http://localhost:8080). Tap Play to activate audio, swit
 
 `WebAudioEngine` is an exported bridge created inside the AudioWorkletProcessor. It uses the common `AudioPlayer`, sine, noise, and crossfade code. Custom Kotlin sources belong in that same compiled worklet module. JavaScript cannot transfer arbitrary Kotlin objects from the browser window into an audio worklet.
 
+For an app with its own Kotlin worklet bridge, create an `AudioPlayer` with your source and import `bio.aq.audio.renderChannels`. Pass the two output channel arrays to `player.renderChannels(left, right)` from the processor callback. Use `takeFailure()` to detect source errors. The browser host owns the AudioContext and its lifecycle.
+
 The main-thread `BrowserAudio` host loads the worklet after a user gesture and sends commands through its MessagePort. It suspends the AudioContext on pause and closes it on page exit or processor failure. It handles commands arriving while the module loads. PCM stays on the audio rendering thread.
 
 Run host lifecycle tests without a browser. The compiled tests require the build and staging steps above.

@@ -42,7 +42,7 @@ class AudioRenderingTest {
     @Test
     fun crossfadeIsContinuousAcrossArbitraryBufferBoundaries() {
         fun render(chunks: List<Int>): FloatArray {
-            val source = SwitchingSource(constant(-1f), transitionFrames = 9, chunkFrames = 3)
+            val source = CrossfadeSource(constant(-1f), transitionFrames = 9, chunkFrames = 3)
             source.replaceSource(constant(1f))
             val result = FloatArray(chunks.sum() * 2)
             var offset = 0
@@ -65,7 +65,7 @@ class AudioRenderingTest {
 
     @Test
     fun newRequestDuringFadeFinishesCurrentTransitionBeforeNext() {
-        val source = SwitchingSource(constant(-1f), transitionFrames = 3, chunkFrames = 1)
+        val source = CrossfadeSource(constant(-1f), transitionFrames = 3, chunkFrames = 1)
         source.replaceSource(constant(0f))
         val first = FloatArray(2)
         source.render(first, 1)
@@ -78,7 +78,7 @@ class AudioRenderingTest {
     @Test
     fun zeroFramesNeverAdvanceSources() {
         var calls = 0
-        val source = SwitchingSource(PcmSource { _, _ -> calls++ })
+        val source = CrossfadeSource(PcmSource { _, _ -> calls++ })
         source.replaceSource(PcmSource { _, _ -> calls++ })
         source.render(FloatArray(0), 0)
         assertEquals(0, calls)
@@ -92,6 +92,11 @@ class AudioRenderingTest {
         assertFailsWith<IllegalArgumentException> { NoiseSource(amplitude = Float.NaN) }
         assertFailsWith<IllegalArgumentException> { SineSource().render(FloatArray(2), Int.MAX_VALUE) }
         assertFailsWith<IllegalArgumentException> { NoiseSource().render(FloatArray(2), -1) }
+        assertFailsWith<IllegalArgumentException> { CrossfadeSource(constant(0f), transitionFrames = 0) }
+        assertFailsWith<IllegalArgumentException> { CrossfadeSource(constant(0f), transitionFrames = -1) }
+        assertFailsWith<IllegalArgumentException> { CrossfadeSource(constant(0f), chunkFrames = 0) }
+        assertFailsWith<IllegalArgumentException> { CrossfadeSource(constant(0f), chunkFrames = -1) }
+        assertFailsWith<IllegalArgumentException> { CrossfadeSource(constant(0f), chunkFrames = Int.MAX_VALUE) }
     }
 
     private fun constant(value: Float) = PcmSource { buffer, frames ->

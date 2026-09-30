@@ -24,7 +24,7 @@ class WebAudioEngine {
         )
     }
 
-    fun renderChannels(left: dynamic, right: dynamic) = player.output.renderChannels(left, right)
+    fun renderChannels(left: dynamic, right: dynamic) = player.renderChannels(left, right)
 
     fun takeFailureMessage(): String? = player.takeFailure()?.let { it.message ?: "PCM generation failed" }
 }
